@@ -1,0 +1,81 @@
+version: "3.8"
+
+services:
+  # Authentication: Azure AD + Session with Redis
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.2.1
+    container_name: oauth2-proxy
+    restart: unless-stopped
+    networks:
+      - default-net
+    expose:
+      - "4180"
+    environment:
+      # --- From .env ---
+      OAUTH2_PROXY_CLIENT_ID: "${OAUTH2_PROXY_CLIENT_ID}"
+      OAUTH2_PROXY_CLIENT_SECRET: "${OAUTH2_PROXY_CLIENT_SECRET}"
+      OAUTH2_PROXY_AZURE_TENANT: "${OAUTH2_PROXY_AZURE_TENANT}"
+      # --- Fixed values ---
+      OAUTH2_PROXY_HTTP_ADDRESS: "0.0.0.0:4180"
+      OAUTH2_PROXY_PROVIDER: "azure"
+      OAUTH2_PROXY_REDIRECT_URL: "${OAUTH2_PROXY_REDIRECT_URL}"
+      OAUTH2_PROXY_SCOPE: "openid profile email"
+      OAUTH2_PROXY_EMAIL_DOMAINS: "*"
+      # Dummy upstream for NGINX auth_request pattern (not under actual app)
+      OAUTH2_PROXY_UPSTREAMS: "file:///dev/null"
+      OAUTH2_PROXY_COOKIE_SECRET: "${OAUTH2_PROXY_COOKIE_SECRET}"
+      OAUTH2_PROXY_SESSION_STORE_TYPE: "redis"
+      OAUTH2_PROXY_REDIS_CONNECTION_URL: "redis://redis:6379"
+      OAUTH2_PROXY_COOKIE_SECURE: "true"
+      OAUTH2_PROXY_COOKIE_DOMAINS: ".potofo.net"
+      OAUTH2_PROXY_REVERSE_PROXY: "true"
+      # For auth_request: Return user information in headers
+      OAUTH2_PROXY_SET_XAUTHREQUEST: "true"
+
+  # Session store
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    networks:
+      - default-net
+    expose:
+      - "6379"
+
+  # Frontend: TLS termination + Static content delivery + Authorization (auth_request)
+  nginx:
+    image: nginx:latest
+    container_name: nginx
+    depends_on:
+      - oauth2-proxy
+    networks:
+      - default-net
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # --- Environment variables for Nginx configuration from .env ---
+      NGINX_SERVER_NAME: "${NGINX_SERVER_NAME}"
+      NGINX_SERVER_NAME_WWW: "${NGINX_SERVER_NAME_WWW}"
+      NGINX_PROXY_PASS: "${NGINX_PROXY_PASS}"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/templates/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d
+      - ./letsencrypt:/etc/letsencrypt
+      - ./certbot-www:/var/www/certbot
+      - ./web:/usr/share/nginx/html:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # Certificate acquisition/renewal (usually stopped)
+  certbot:
+    image: certbot/certbot:latest
+    container_name: certbot
+    volumes:
+      - ./letsencrypt:/etc/letsencrypt
+      - ./certbot-www:/var/www/certbot
+    entrypoint: ["true"]
+
+networks:
+  default-net:
+    driver: bridge
