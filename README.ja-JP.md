@@ -162,7 +162,7 @@ HTTPのWebサーバを設定します。
 #### 2.1 リポジトリのクローン
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/potofo/oauth2-proxy.git
 cd oauth2-proxy
 ```
 
